@@ -154,12 +154,56 @@ def check_for_command(message):
                     f"Пользователь {message.reply_to_message.from_user.username} не отмечен в базе как ранее привлекавщийся. Его нельзя реабилтировать, пока он не получит свой первый бан",
                 )
 
+
+def check_right_for_appeal(message):
+    user = storage.get_user(message.from_user.id)
+    if not user:
+        bot.reply_to(
+            message,
+            f"Апелляция отклонена. Вы не отмечены в базе как нарушитель. Вы не можете апеллировать решению о нарушении без такого решения.",
+        )
+        return False
+
+    if user.days == 0:
+        bot.reply_to(
+            message,
+            f"Апелляция отклонена. Вы реабилитированы по всем пунктам.",
+        )
+        return False
+
+    if datetime.now() - user.ban_date > timedelta(hours = 5):
+        bot.reply_to(
+            message,
+            f"Апелляция отклонена. Срок подачи апелляции истёк",
+        )
+        return False
+
+    return True
+
+
+def public_appeal(message):
+    post_text = f"Автор {message.from_user.username}\nАпелляция: {message.text}"
+    bot.send_message(chat_id=my_setting.appeal_channel, text=post_text) 
+
+def register_appeal(message):
+    if not check_right_for_appeal(message):
+        return
+    public_appeal(message)
+    bot.reply_to(
+                        message,
+                        f"Апелляция зарегестрирована.",
+                    )
+                    
+                    
+
 #TODO add handler for commands
 @bot.message_handler(content_types="text")
 def message_reply(message):
     print("msg :", message.chat.id)
     try:
         check_for_command(message)
+        if message.chat.type == 'private':
+            register_appeal(message)
     except Exception as e:
         print(e)
 

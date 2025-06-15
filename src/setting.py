@@ -13,6 +13,7 @@ class settings:
 
         self.logger_chat = settings["logger_chat"]
         self.special_chat = settings["special_chat"]
+        self.appeal_channel = settings["appeal_channel"]
         self.token = settings["token"]
         self.toxicity_threshold = settings["toxicity_threshold"]
 
@@ -28,6 +29,7 @@ if __name__ == "__main__":
 
     print(f"Logger Chat ID: {my_settings.logger_chat}")
     print(f"Special Chat ID: {my_settings.special_chat}")
+    print(f"Appeal channel ID: {my_settings.appeal_channel}")
     print(f"Token: {my_settings.token}")
     print(f"Toxicity Threshold: {my_settings.toxicity_threshold}")
 
