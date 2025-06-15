@@ -15,6 +15,7 @@ bot = telebot.TeleBot(token)
 bot_name = bot.get_me().username
 bot_tag = f"@{bot_name}"
 
+storage = PostgresStorage(my_setting)
 
 def check_status(message):
     user_status = bot.get_chat_member(message.chat.id, message.from_user.id).status
@@ -24,10 +25,13 @@ def check_status(message):
 def next_midnight():
     now = datetime.now()
     midnight_today = datetime(now.year, now.month, now.day)
+    #from UTC+5 to UTC+0
+    #TODO do it correct
+    midnight_today = midnight_today - timedelta(hours=5)
     if now >= midnight_today:
         midnight_today += timedelta(days=1)
 
-    return midnight_today
+    return midnight_today 
 
 
 def mute_user_for(message, duration_in_days=1):
@@ -42,24 +46,28 @@ def mute_user_for(message, duration_in_days=1):
         until_date=next_midnight() + timedelta(days=duration_in_days),
     )
 
-
-def mute_user(message, admin_telegram_user_id:int = bot.get_me().id):
-    ban_time = choose_ban_time(message)
-    mute_user_for(message, ban_time)
-    if ban_time == 1:
-        storage.create_user_ban_time(message.from_user.id, admin_telegram_user_id)
-    else:
-        storage.update_user(message.from_user.id, admin_telegram_user_id, days = ban_time)
-    return ban_time
-
-
-def choose_ban_time(message) -> int:
+def choose_ban_time(message,user) -> int:
+    global storage
     user = storage.get_user(message.from_user.id)
     if user:
         last_ban_time = user.days
+        if last_ban_time == 0:
+            return 1
         return last_ban_time * 2
     else:
         return 1
+
+def mute_user(message, admin_telegram_user_id:int = bot.get_me().id):
+    global storage
+    user = storage.get_user(message.from_user.id)
+    ban_time = choose_ban_time(message, user)
+    print(f"Chosen: {ban_time} days")
+    mute_user_for(message, ban_time)
+    if user:
+        storage.update_user(message.from_user.id, admin_telegram_user_id, days = ban_time)
+    else:
+        storage.create_user_ban_time(message.from_user.id, admin_telegram_user_id)
+    return ban_time
 
 
 @bot.message_handler(commands=["start"])
@@ -68,6 +76,7 @@ def start_message(message):
 
 
 def check_for_command(message):
+    global storage
     status = check_status(message)
     if message.reply_to_message == None:
         return
