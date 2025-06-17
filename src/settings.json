@@ -2,6 +2,7 @@
     "logger_chat": -4735002818,
     "special_chat": -1002668057134,
     "appeal_channel": -1002731299080,
+    "appeal_channel_discussion": -1002522082640,
     "token": "7436952700:AAH8w2L5rI3wVFkGwcCNffKNK7E1AmBLKtY",
     "toxicity_threshold": 0.68,
     "databasename":"postgres",
