@@ -41,6 +41,7 @@ def mute_user_for(message, duration_in_days=1):
     user_status = bot.get_chat_member(message.chat.id, message.from_user.id).status
     if user_status == "administrator" or user_status == "creator":
         bot.reply_to(message, "Невозможно замутить администратора.")
+        raise Exception("attempt to ban admin")
         return
 
     bot.restrict_chat_member(
@@ -77,6 +78,9 @@ def warn_user(message, admin_telegram_user_id:int = bot.get_me().id):
     global storage
     user = storage.get_warned_user(message.from_user.id)
     if user:
+        if  datetime.now() - user.warn_date > timedelta(days=7):
+            print("there was enough time to forget about last warning")
+            user.counter=0
         if user.counter+1 >= WARNS_TO_BAN:
             storage.update_warned_user(message.from_user.id, admin_telegram_user_id, counter = 0)
             return 0
@@ -145,6 +149,7 @@ def check_for_command(message):
         user_status = bot.get_chat_member(message.chat.id, user_id).status
         if user_status == "administrator" or user_status == "creator":
             bot.reply_to(message, "Невозможно лишить прав администратора. Так что и вернуть ему права невозможно.")
+            return
         else:
             bot.restrict_chat_member(
                 chat_id,
@@ -290,25 +295,25 @@ def check_for_appeal_command(message):
                     message,
                     f"Вы являетесь тем администратором, который забанил юзера, подавшего апелляцию. Вы не имеете права голоса в рамках этой апелляции",
                 )
-                #return False
+                return False
             if banned_user.telegram_user_id == message.from_user.id:
                 bot.reply_to(
                     message,
                     f"Вы являетесь пользователем, чья апелляция сейчас рассматривается. Вы не имеете права голоса в рамках этой апелляции",
                 )
-                #return False
+                return False
             if not check_status(message):
                 bot.reply_to(
                     message,
                     f"Одобрить апелляцию способен только администратор",
                 )
-                # return False
+                return False
             if storage.is_appeal_approved_by_the_user(appeal.id, message.from_user.id):
                 bot.reply_to(
                     message,
                     f"Вы уже одобрили данную апелляцию",
                 )
-                #return False
+                return False
 
             approve_appeal(message, appeal, banned_user)
 
