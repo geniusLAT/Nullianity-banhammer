@@ -286,6 +286,12 @@ def check_for_command(message):
         publish_log(log)
     
 
+def publish_log(text:str):
+    print(text)
+    bot.send_message(chat_id=my_setting.logger_chat, text=text) 
+
+##segment about mute appeals
+
 def check_right_for_appeal(message, user):
     if not user:
         bot.reply_to(
@@ -318,11 +324,6 @@ def check_right_for_appeal(message, user):
         return False
 
     return True
-
-
-def publish_log(text:str):
-    print(text)
-    bot.send_message(chat_id=my_setting.logger_chat, text=text) 
 
 
 def public_appeal(message, banned_user):
@@ -401,11 +402,15 @@ def check_for_appeal_command(message):
         print(appeal)
         if message.text.startswith("/approve"):
             if not appeal:
-                bot.reply_to(
-                    message,
-                    f"Ошибка одобрения апелляции",
-                )
-                return False
+                warn_appeal = storage.get_warn_appeal(message.reply_to_message.forward_origin.message_id)
+                if warn_appeal:
+                    return check_for_warn_appeal_command(message, warn_appeal)
+                else:
+                    bot.reply_to(
+                        message,
+                        f"Ошибка одобрения апелляции",
+                    )
+                    return False
             if appeal.isClosed:
                 bot.reply_to(
                     message,
@@ -461,11 +466,164 @@ def approve_appeal(message, appeal, user):
         print("Appeal was satisfied")
         storage.close_appeal_by_id(appeal.id)
         satisfaction_message = f"Апелляция получила необходимое количество одобрений и считается удовлетворённой. Вы как последний член апелляционной комиссии должны её удовлетоворить."
+    answer = f"Аппеляция одобрена модератором {message.from_user.username}.\n {satisfaction_message}",
+    publish_log(f" {answer} ")
     bot.reply_to(
                     message,
-                    f"Аппеляция одобрена модератором {message.from_user.username}.\n {satisfaction_message}",
+                    answer
                 )
 
+
+##segment about warn appeals
+
+def check_right_for_warn_appeal(message, user):
+    if not user:
+        bot.reply_to(
+            message,
+            f"Апелляция отклонена. Вы не отмечены в базе как нарушитель. Вы не можете апеллировать решению о нарушении без такого решения.",
+        )
+        return False
+
+    if user.counter == 0:
+        bot.reply_to(
+            message,
+            f"Апелляция отклонена. Вы реабилитированы по всем пунктам.",
+        )
+        return False
+
+    # appeal = storage.get_appeal_by_ban_id(user.id)
+    # if appeal:
+    #     if not appeal.isClosed:
+    #         bot.reply_to(
+    #             message,
+    #             f"Вы уже подавали апелляцию {appeal.appealDate}. Вы не можете ",
+    #         )
+    #         return False
+
+    if datetime.now() - user.warn_date > timedelta(hours = 72):
+        bot.reply_to(
+            message,
+            f"Апелляция отклонена. Срок подачи апелляции истёк",
+        )
+        return False
+
+    return True
+
+
+def public_warn_appeal(message, warnned_user):
+    log = f"Апелляция на предупреждение\n\n[{message.from_user.username}](tg://user?id={message.from_user.id}) \\({message.from_user.id}\\) получил\\(a\\) своё последнее предупреждение"
+    log += f"\nДата наложения последнего предупреждения {warnned_user.warn_date}"
+    admin = bot.get_chat_member(my_setting.special_chat, warnned_user.admin_telegram_user_id).user 
+    log += f"\nАдминистратор наложивший прдупреждение: [{admin.username}](tg://user?id={warnned_user.admin_telegram_user_id}) \\({warnned_user.admin_telegram_user_id}\\)"
+
+
+    text_commandless = " ".join(message.text.split(" ")[1:], )
+    if text_commandless == "":
+        bot.reply_to(
+                        message,
+                        f"Вы, вероятно, по ошибке пытаетесь отправить пустой текст апелляции. Пожалуйста, кроме команды через пробел укажите почему вы считаете мут несправедливым",
+                    )
+        raise Exception(f"Empty warn appeal text by {message.from_user.username} ({message.from_user.id})")
+    text_commandless = text_commandless.replace('(','\\(').replace(')','\\)').replace('=','\\=')
+
+    post_text = f"{log}\n\nТекст апелляции: {text_commandless}"
+    post_text = post_text.replace('-','\\-').replace('.','\\.').replace('!','\\!')
+    print(post_text)
+    publish_log(post_text)
+    mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text, parse_mode="MarkdownV2") # 
+    print(f"published appeal id {mes.id}")
+    return mes
+
+
+def register_warn_appeal(message):
+    user = storage.get_warned_user(message.from_user.id)
+    if not check_right_for_warn_appeal(message, user):
+        return
+    appeal_message = public_warn_appeal(message, user)
+    print("creating warn appeal")
+    storage.create_warn_appeal(user.id, appeal_message.id)
+    print("created warn appeal")
+
+    post_channel_id =  -1 * appeal_message.chat.id -1000000000000
+    print(appeal_message.chat.id)
+    print(post_channel_id)
+    answer = f"[Апелляция на предупреждение](https://t.me/c/{post_channel_id}/{appeal_message.id}) зарегестрирована\\."
+    publish_log(answer)
+    bot.reply_to(
+                        message,
+                        answer,
+                        parse_mode="MarkdownV2"
+                    )
+
+def check_for_warn_appeal_command(message, appeal):
+    print(appeal)
+    if message.text.startswith("/approve"):
+        if not appeal:
+            return False
+        if appeal.isClosed:
+            bot.reply_to(
+                message,
+                f"Данная апелляция уже была одобрена. Дополнительное одобрение избыточно.",
+            )
+            return False
+        if datetime.now() - appeal.appealDate > timedelta(days = 7):
+            bot.reply_to(
+                message,
+                f"Одобрение данной апелляции идёт с опозданием, она была размещена более 7 дней назад",
+            )
+        warned_user = storage.get_warned_user_by_warn_id(appeal.warnId)
+        if not warned_user:
+            bot.reply_to(
+                message,
+                f"Апелляция создана на несуществующего пользователя. Записи в БД пропали. Это странно. Вам стоит задуматься...",
+            )
+            return False
+        if warned_user.admin_telegram_user_id == message.from_user.id:
+            bot.reply_to(
+                message,
+                f"Вы являетесь тем администратором, который дал предупреждение юзеру, подавшему апелляцию. Вы не имеете права голоса в рамках этой апелляции",
+            )
+            return False
+        if warned_user.telegram_user_id == message.from_user.id:
+            bot.reply_to(
+                message,
+                f"Вы являетесь пользователем, чья апелляция сейчас рассматривается. Вы не имеете права голоса в рамках этой апелляции",
+            )
+            return False
+        if not check_status(message):
+            bot.reply_to(
+                message,
+                f"Одобрить апелляцию способен только администратор",
+            )
+            return False
+        if storage.is_warn_appeal_approved_by_the_user(appeal.id, message.from_user.id):
+            bot.reply_to(
+                message,
+                f"Вы уже одобрили данную апелляцию",
+            )
+            return False
+
+        approve_warn_appeal(message, appeal, banned_user)
+        return True
+
+
+def approve_warn_appeal(message, appeal, user):
+    storage.create_warn_appeal_approve(appeal.id, message.from_user.id )
+
+    satisfaction_message = ""
+    approve_counter = storage.count_warn_appeals_by_id(appeal.id)
+    if approve_counter == APPROVES_TO_SATISFY_APPEAL:
+        print("Appeal was satisfied")
+        storage.close_warn_appeal_by_id(appeal.id)
+        satisfaction_message = f"Апелляция получила необходимое количество одобрений и считается удовлетворённой. Вы как последний член апелляционной комиссии должны её удовлетоворить."
+    answer = f"Аппеляция одобрена модератором {message.from_user.username}.\n {satisfaction_message}",
+    publish_log(f" {answer} ")
+    bot.reply_to(
+                    message,
+                    answer
+                )
+
+## private message processing
 
 def show_statistics_for_user(message):
     print("showing statistics")
@@ -518,9 +676,9 @@ def show_statistics_for_user(message):
     mute_appeals = storage.get_appeals_by_telegram_user_id(user_id)
     log += f"\nВы подали апелляций на муты: {len(mute_appeals)} "
     for appeal in mute_appeals:
-        closed_msg = "закрыта"
+        closed_msg = "на рассмотрении" 
         if appeal.isClosed:
-            closed_msg = "на рассмотрении"
+            closed_msg = "закрыта"
         count = storage.count_appeals_by_id(appeal.id)
         log += f"\nАпелляция подана {appeal.appealDate}, она {closed_msg}, получила {count}/{APPROVES_TO_SATISFY_APPEAL} одобрений"
 
@@ -553,6 +711,15 @@ def show_statistics_for_user(message):
             log += f"\nВы не имеете права подавать на аппеляцию о предупреждениях, так как количество активных предупреждений равно нулю."
     else:
          log += f"\nНе обнаружено записей о выдаче вам предупреждений со стороны администрации"
+    warn_appeals = storage.get_warn_appeals_by_telegram_user_id(user_id)
+    log += f"\nВы подали апелляций на варны: {len(warn_appeals)} "
+    for appeal in warn_appeals:
+        closed_msg = "на рассмотрении" 
+        if appeal.isClosed:
+            closed_msg = "закрыта"
+        count = storage.count_appeals_by_id(appeal.id)
+        log += f"\nАпелляция подана {appeal.appealDate}, она {closed_msg}, получила {count}/{APPROVES_TO_SATISFY_APPEAL} одобрений"
+
 
     bot.reply_to(message, log)
 
@@ -569,6 +736,14 @@ def show_help(message):
 
     Пример: /appeal_mute мне был выдан мут администратором IvanFedorov за то, что я ругаюсь матом. Администратор не указал, какой именно пункт правил я 
     нарушаю. А ругаться матом не запрещено. Считаю мут несправедливым и незаконным.
+
+    /appeal_warn - позволяет подать апелляцию на наложенный на вас мут. Пожалуйста укажите как можно больше подробностей, в своём сообщении. 
+    После публикации апелляции она будет размещена в канале для апелляций, где апелляционная комиссия сможет рассмотреть её согласно правилам.
+    Если вы не согласны с несколькими варнами (предупреждениями), полученными в последнее время, пожалуйста, уложите ваши пожелания в рамках одной апелляции и в тексте опишите
+    все случаи, с которыми не согласны. У вас есть возможность отправить несколько апелляций, но это не рекомендуется.
+
+    Пример: /appeal_warn мне был выдан варн администратором IvanFedorov за то, что я ругаюсь матом. Администратор не указал, какой именно пункт правил я 
+    нарушаю. А ругаться матом не запрещено. Считаю варн несправедливым и незаконным.
     '''
     bot.reply_to(message, answer)
 
@@ -581,6 +756,9 @@ def process_private_chat_message(message):
         return
     if message.text.startswith("/appeal_mute"):
         register_appeal(message)
+        return
+    if message.text.startswith("/appeal_warn"):
+        register_warn_appeal(message)
         return
     bot.reply_to(message, "Напишите /help чтобы узнать подробнее")
     

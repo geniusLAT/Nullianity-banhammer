@@ -12,7 +12,8 @@ class User:
         self.days = days
 
 class WarnedUser:
-    def __init__(self, telegram_user_id, admin_telegram_user_id, warn_date, counter):
+    def __init__(self, id, telegram_user_id, admin_telegram_user_id, warn_date, counter):
+        self.id = id,
         self.telegram_user_id = telegram_user_id
         self.admin_telegram_user_id = admin_telegram_user_id
         self.warn_date = warn_date
@@ -112,7 +113,7 @@ class PostgresStorage:
 
     def get_warned_user(self, telegram_user_id):
         select_query = """
-        SELECT telegramUserId, adminTelegramUserId, warnDate, counter 
+        SELECT id, telegramUserId, adminTelegramUserId, warnDate, counter 
         FROM warn_table 
         WHERE telegramUserId = %s;
         """
@@ -123,6 +124,21 @@ class PostgresStorage:
             return WarnedUser(*result)  # Распаковываем результат в параметры конструктора User
         else:
             return None  # Пользователь не найден    
+
+    def get_warned_user_by_warn_id(self, warn_id):
+
+        select_query = """
+        SELECT id, telegramUserId, adminTelegramUserId, warnDate, counter 
+        FROM warn_table 
+        WHERE id = %s;
+        """
+        self.cursor.execute(select_query, (warn_id,))
+        result = self.cursor.fetchone()
+        
+        if result:
+            return User(*result)  # Распаковываем результат в параметры конструктора User
+        else:
+            return None  # Пользователь не найден
 
     def get_user(self, telegram_user_id):
         select_query = """
@@ -385,7 +401,7 @@ class PostgresStorage:
 
     def get_warn_appeals_by_telegram_user_id(self, telegramUserId):
         select_query = """
-        SELECT a.id, a.banId, a.messageId, a.isClosed, a.appealDate
+        SELECT a.id, a.warnId, a.messageId, a.isClosed, a.appealDate
         FROM warn_appeal_table a
         JOIN warn_table b ON a.warnId = b.id
         WHERE b.telegramUserId = %s;
