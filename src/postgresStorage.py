@@ -235,6 +235,21 @@ class PostgresStorage:
         else:
             return None
 
+
+    def get_appeals_by_telegram_user_id(self, telegramUserId):
+        select_query = """
+        SELECT a.id, a.banId, a.messageId, a.isClosed, a.appealDate
+        FROM appeal_table a
+        JOIN ban_table b ON a.banId = b.id
+        WHERE b.telegramUserId = %s;
+        """
+        self.cursor.execute(select_query, (telegramUserId,))
+        results = self.cursor.fetchall()
+
+        # Возвращаем список объектов AppealRecord (или пустой список, если записей нет)
+        return [AppealRecord(*row) for row in results]
+
+
     def get_appeal_by_ban_id(self, banId):
         select_query = """
         SELECT id, banId, messageId, isClosed, appealDate

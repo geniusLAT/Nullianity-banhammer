@@ -325,9 +325,33 @@ def publish_log(text:str):
     bot.send_message(chat_id=my_setting.logger_chat, text=text) 
 
 
-def public_appeal(message):
-    post_text = f"Автор {message.from_user.username}\nАпелляция: {message.text}"
-    mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text) 
+def public_appeal(message, banned_user):
+    day_word_form = "дней"
+    r = banned_user.days % 10
+    if r == 1 and banned_user.days % 100 != 11:
+        day_word_form = "дней"
+    if r > 1 and r < 5 and (banned_user.days % 100) - r != 10 :
+        day_word_form = "дня"
+    interval_message = f"{banned_user.days} {day_word_form}"
+    log = f"\n[{message.from_user.username}](tg://user?id={message.from_user.id}) \\({message.from_user.id}\\) получил\\(a\\) свой последний мут на {interval_message}."
+    log += f"\nДата наложения последнего бана {banned_user.ban_date}"
+    admin = bot.get_chat_member(my_setting.special_chat, banned_user.admin_telegram_user_id).user 
+    log += f"\nАдминистратор наложивший бан: [{admin.username}](tg://user?id={banned_user.admin_telegram_user_id}) \\({banned_user.admin_telegram_user_id}\\)"
+
+
+    text_commandless = " ".join(message.text.split(" ")[1:], )
+    if text_commandless == "":
+        bot.reply_to(
+                        message,
+                        f"Вы, вероятно, по ошибке пытаетесь отправить пустой текст апелляции. Пожалуйста, кроме команды через пробел укажите почему вы считаете мут несправедливым",
+                    )
+        raise Exception(f"Empty mute appeal text by {message.from_user.username} ({message.from_user.id})")
+    text_commandless = text_commandless.replace('(','\\(').replace(')','\\)').replace('=','\\=')
+
+    post_text = f"{log}\n\nТекст апелляции: {text_commandless}"
+    post_text = post_text.replace('-','\\-').replace('.','\\.').replace('!','\\!')
+    print(post_text)
+    mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text, parse_mode="MarkdownV2") # 
     print(f"published appeal id {mes.id}")
     return mes.id
 
@@ -336,7 +360,7 @@ def register_appeal(message):
     user = storage.get_user(message.from_user.id)
     if not check_right_for_appeal(message, user):
         return
-    appeal_message_id = public_appeal(message)
+    appeal_message_id = public_appeal(message, user)
     print("creating appeal")
     storage.create_appeal(user.id, appeal_message_id)
     print("created appeal")
@@ -435,6 +459,124 @@ def approve_appeal(message, appeal, user):
                 )
 
 
+def show_statistics_for_user(message):
+    print("showing statistics")
+
+    user_id = message.from_user.id
+    
+    status_message = ""
+
+    try:
+        status = bot.get_chat_member(my_setting.special_chat, user_id).status
+        if status == "creator":
+            status_message = "создатель чата, в котором работает бот."
+        if status == "administrator":
+            status_message = "администратор чата, в котором работает бот."
+        if status == "member":
+            status_message = "обычный участник чата, в котором работает бот."
+    except Exception as e:
+        print(e)
+
+    if status_message == "":
+        bot.reply_to(message, "Вы не являетесь участником чата")
+        return
+    
+    log = f"Вы {message.from_user.username} ({message.from_user.id}), {status_message}"
+
+    banned_user = storage.get_user(user_id)
+
+    if banned_user:
+        day_word_form = "дней"
+        r = banned_user.days % 10
+        if r == 1 and banned_user.days % 100 != 11:
+            day_word_form = "дней"
+        if r > 1 and r < 5 and (banned_user.days % 100) - r != 10 :
+            day_word_form = "дня"
+        interval_message = f"{banned_user.days} {day_word_form}"
+        log += f"\nВы получили свой последний мут на {interval_message} ."
+        log += f"\nДата наложения последнего бана {banned_user.ban_date}"
+        admin = bot.get_chat_member(my_setting.special_chat, banned_user.admin_telegram_user_id).user 
+        log += f"\nАдминистратор наложивший бан: {admin.username} {banned_user.admin_telegram_user_id}"
+
+        if banned_user.days != 0:
+            if datetime.now() - banned_user.ban_date > timedelta(hours = 72):
+                log += f"\nСрок подачи (72 часа) апелляции истёк"
+            else:
+                log += f"\nВы можете подать апелляцию (напишите /help чтобы узнать подробнее)"
+        else:
+            log += f"\nВы не имеете права подавать апелляцию о муте, так как реабилитированы по всем пунктам."
+    else:
+         log += f"\nНе обнаружено записей о выдаче вам мутов со стороны администрации"
+    mute_appeals = storage.get_appeals_by_telegram_user_id(user_id)
+    log += f"\nВы подали апелляций на муты: {len(mute_appeals)} "
+    for appeal in mute_appeals:
+        closed_msg = "закрыта"
+        if appeal.isClosed:
+            closed_msg = "на рассмотрении"
+        count = storage.count_appeals_by_id(appeal.id)
+        log += f"\nАпелляция подана {appeal.appealDate}, она {closed_msg}, получила {count}/{APPROVES_TO_SATISFY_APPEAL} одобрений"
+
+    log += f"\n"
+
+    warned_user = storage.get_warned_user(user_id)
+    if warned_user:
+        
+        log += f"\nУ вас есть {warned_user.counter} предупреждений."
+        log += f"\nДата наложения последнего предупреждения {warned_user.warn_date}"
+        
+        now = datetime.now()
+        spent_time = now - warned_user.warn_date
+        log += f"\nСейчас {now}"
+        log += f"\n прошло {spent_time},"
+        if  spent_time > timedelta(days=DAYS_BEFORE_WARN_EXPIRE):
+            log += f"это более {DAYS_BEFORE_WARN_EXPIRE} суток. Предыдушее предупреждение утратило силу, так что считается, что у вас 0 предупреждений"
+            print(log)
+            warned_user.counter=0
+
+        admin = bot.get_chat_member(my_setting.special_chat, warned_user.admin_telegram_user_id).user 
+        log += f"\nАдминистратор наложивший предупреждение: {admin.username} {warned_user.admin_telegram_user_id}"
+
+        if warned_user.counter > 0:
+            if datetime.now() - warned_user.warn_date > timedelta(hours = 72):
+                log += f"\nСрок подачи (72 часа) апелляции истёк"
+            else:
+                log += f"\nВы можете подать апелляцию (напишите /help чтобы узнать подробнее)"
+        else:
+            log += f"\nВы не имеете права подавать на аппеляцию о предупреждениях, так как количество активных предупреждений равно нулю."
+    else:
+         log += f"\nНе обнаружено записей о выдаче вам предупреждений со стороны администрации"
+
+    bot.reply_to(message, log)
+
+
+def show_help(message):
+    answer = '''
+    Бот поддерживает следующие команды
+    /help - позволяет узнать список команд
+    /statistics - позволяет узнать ваш статус в системе, количество мутов, предупреждений, апелляций и прочие сведения.
+    /appeal_mute - позволяет подать апелляцию на наложенный на вас мут. Пожалуйста укажите как можно больше подробностей, в своём сообщении. 
+    После публикации апелляции она будет размещена в канале для апелляций, где апелляционная комиссия сможет рассмотреть её согласно правилам.
+    Если вы не согласны с несколькими мутами, полученными в последнее время, пожалуйста, уложите ваши пожелания в рамках одной апелляции и в тексте опишите
+    все случаи, с которыми не согласны. У вас есть возможность отправить несколько апелляций, но это не рекомендуется.
+
+    Пример: /appeal_mute мне был выдан мут администратором IvanFedorov за то, что я ругаюсь матом. Администратор не указал, какой именно пункт правил я 
+    нарушаю. А ругаться матом не запрещено. Считаю мут несправедливым и незаконным.
+    '''
+    bot.reply_to(message, answer)
+
+def process_private_chat_message(message):
+    if message.text.startswith("/statistics"):
+        show_statistics_for_user(message)
+        return
+    if message.text.startswith("/help"):
+        show_help(message)
+        return
+    if message.text.startswith("/appeal_mute"):
+        register_appeal(message)
+        return
+    bot.reply_to(message, "Напишите /help чтобы узнать подробнее")
+    
+
 
 #TODO add handler for commands
 @bot.message_handler(content_types="text")
@@ -447,7 +589,8 @@ def message_reply(message):
         check_for_command(message)
 
         if message.chat.type == 'private':
-            register_appeal(message)
+            process_private_chat_message(message)
+            #register_appeal(message)
     except Exception as e:
         print(e)
 
