@@ -635,11 +635,11 @@ def show_statistics_for_user(message):
     try:
         status = bot.get_chat_member(my_setting.special_chat, user_id).status
         if status == "creator":
-            status_message = "создатель чата, в котором работает бот."
+            status_message = "создатель"
         if status == "administrator":
-            status_message = "администратор чата, в котором работает бот."
+            status_message = "администратор"
         if status == "member":
-            status_message = "обычный участник чата, в котором работает бот."
+            status_message = "обычный участник"
     except Exception as e:
         print(e)
 
@@ -647,7 +647,11 @@ def show_statistics_for_user(message):
         bot.reply_to(message, "Вы не являетесь участником чата")
         return
     
-    log = f"Вы {message.from_user.username} ({message.from_user.id}), {status_message}"
+    activity_message = ""
+    if storage.is_active_admin(message.from_user.id):
+        activity_message += ", вы в списке активных админов"
+
+    log = f"Вы {message.from_user.username} ({message.from_user.id}), {status_message} чата, в котором работает бот{activity_message}."
 
     banned_user = storage.get_user(user_id)
 
@@ -724,10 +728,34 @@ def show_statistics_for_user(message):
     bot.reply_to(message, log)
 
 
+def subscribe_active_admin(message):
+    print('adding new active admin')
+    if not check_status(message):
+        bot.reply_to(message, "Вы не админ, так что вы не можете быть добавлены в список")
+        return False
+
+    if storage.is_active_admin(message.from_user.id):
+        bot.reply_to(message, "Вы уже добавлены в список активных админов, вы не можете присутствовать в нём дважды")
+        return False
+    storage.create_active_admin(message.from_user.id)
+    bot.reply_to(message, "Вы были добавлены в список активных админов")
+    return True
+
+def unsubscribe_active_admin(message):
+    if not storage.is_active_admin(message.from_user.id):
+        bot.reply_to(message, "Вы не присутствуете в списке, так что вас нельзя оттуда удалить")
+        return False
+    storage.delete_active_admin(message.from_user.id)
+    print('removing active admin')
+    bot.reply_to(message, "Вы удалены из списка")
+    return True
+
 def show_help(message):
     answer = '''
     Бот поддерживает следующие команды
     /help - позволяет узнать список команд
+    /subscribe - добавляет вас в список активных админов, вам потребуется быть админом. В беседе появится возможность применять команду /tag_admins, чтобы призвать всех активных админов
+    /unsubscribe - удаляет вас из списка активных админов, вам потребуется быть админом.
     /statistics - позволяет узнать ваш статус в системе, количество мутов, предупреждений, апелляций и прочие сведения.
     /appeal_mute - позволяет подать апелляцию на наложенный на вас мут. Пожалуйста укажите как можно больше подробностей, в своём сообщении. 
     После публикации апелляции она будет размещена в канале для апелляций, где апелляционная комиссия сможет рассмотреть её согласно правилам.
@@ -760,9 +788,14 @@ def process_private_chat_message(message):
     if message.text.startswith("/appeal_warn"):
         register_warn_appeal(message)
         return
+    if message.text.startswith("/subscribe"):
+        subscribe_active_admin(message)
+        return
+    if message.text.startswith("/unsubscribe"):
+        unsubscribe_active_admin(message)
+        return
     bot.reply_to(message, "Напишите /help чтобы узнать подробнее")
     
-
 
 #TODO add handler for commands
 @bot.message_handler(content_types="text")

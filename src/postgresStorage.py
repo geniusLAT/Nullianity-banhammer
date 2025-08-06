@@ -105,6 +105,10 @@ class PostgresStorage:
             FOREIGN KEY (appealId) REFERENCES warn_appeal_table(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS active_admins_table (
+            id SERIAL PRIMARY KEY,
+            telegramUserId BIGINT NOT NULL
+        );
 
         """
         self.cursor.execute(sql_script)
@@ -478,6 +482,49 @@ class PostgresStorage:
         
         # result[0] содержит количество записей с заданным appealId
         return result[0]
+
+## active admin
+
+#  CREATE TABLE IF NOT EXISTS active_admins_table (
+#             id SERIAL PRIMARY KEY,
+#             telegramUserId BIGINT NOT NULL
+#         );
+
+    def create_active_admin(self, telegramUserId:int):
+
+        insert_query = """
+        INSERT INTO active_admins_table (telegramUserId)
+        VALUES (%s);
+        """
+        self.cursor.execute(insert_query, (telegramUserId, ))
+        self.connection.commit()
+
+    def delete_active_admin(self, telegramUserId: int):
+        delete_query = """
+        DELETE FROM active_admins_table
+        WHERE telegramUserId = %s;
+        """
+        self.cursor.execute(delete_query, (telegramUserId,))
+        self.connection.commit()
+
+    def get_all_active_admins(self) -> list[int]:
+        select_query = """
+        SELECT telegramUserId FROM active_admins_table;
+        """
+        self.cursor.execute(select_query)
+        results = self.cursor.fetchall()
+
+        return [row[0] for row in results]
+        
+    def is_active_admin(self, telegramUserId: int) -> bool:
+        query = """
+        SELECT 1 FROM active_admins_table
+        WHERE telegramUserId = %s
+        LIMIT 1;
+        """
+        self.cursor.execute(query, (telegramUserId,))
+        result = self.cursor.fetchone()
+        return result is not None
 
 
 if __name__ == "__main__":
