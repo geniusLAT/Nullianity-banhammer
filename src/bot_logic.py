@@ -6,6 +6,8 @@ import time
 
 WARNS_TO_BAN = 3
 APPROVES_TO_SATISFY_APPEAL = 3
+DAYS_BEFORE_WARN_EXPIRE = 7
+DEVELOPER_MODE = True
 
 my_setting = setting.settings()
 logger_chat = my_setting.logger_chat
@@ -40,9 +42,9 @@ def next_midnight():
 def mute_user_for(message, duration_in_days=1):
     user_status = bot.get_chat_member(message.chat.id, message.from_user.id).status
     if user_status == "administrator" or user_status == "creator":
-        bot.reply_to(message, "Невозможно замутить администратора.")
-        raise Exception("attempt to ban admin")
-        return
+        log = "Невозможно замутить администратора."
+        #bot.reply_to(message, log)
+        return log
 
     bot.restrict_chat_member(
         message.chat.id,
@@ -66,34 +68,51 @@ def mute_user(message, admin_telegram_user_id:int = bot.get_me().id):
     user = storage.get_user(message.from_user.id)
     ban_time = choose_ban_time(message, user)
     print(f"Chosen: {ban_time} days")
-    mute_user_for(message, ban_time)
+    mute_user_for_log = mute_user_for(message, ban_time)
+    if mute_user_for_log != "" and not DEVELOPER_MODE:
+        return ban_time, mute_user_for_log
     if user:
         storage.update_user(message.from_user.id, admin_telegram_user_id, days = ban_time)
     else:
         storage.create_user_ban_time(message.from_user.id, admin_telegram_user_id)
-    return ban_time
+    return ban_time, mute_user_for_log
 
 
 def warn_user(message, admin_telegram_user_id:int = bot.get_me().id):
     global storage
+    warn_log = ""
     user = storage.get_warned_user(message.from_user.id)
     if user:
-        if  datetime.now() - user.warn_date > timedelta(days=7):
-            print("there was enough time to forget about last warning")
+        now = datetime.now()
+        spent_time = now - user.warn_date
+        print(f"spent_time {spent_time}")
+        warn_log = f"Предыдушее предупреждение было получено пользователем {user.warn_date}."
+        warn_log += f"\nСейчас {now}"
+        warn_log += f"\n прошло {spent_time},"
+        if  spent_time > timedelta(days=DAYS_BEFORE_WARN_EXPIRE):
+            warn_log += f"это более {DAYS_BEFORE_WARN_EXPIRE} суток. Предыдушее предупреждение утратило силу, так что текущее предупреждение считается первым"
+            print(warn_log)
             user.counter=0
         if user.counter+1 >= WARNS_TO_BAN:
             storage.update_warned_user(message.from_user.id, admin_telegram_user_id, counter = 0)
-            return 0
+            return 0, warn_log
         storage.update_warned_user(message.from_user.id, admin_telegram_user_id, counter = user.counter + 1)
-        return user.counter+1
+        return user.counter+1, warn_log
     else:
+        warn_log += f"Данный пользователь никогда ранее не получал предупреждений"
         storage.create_warned_user_ban_time(message.from_user.id, admin_telegram_user_id)
-        return 1
+        return 1, warn_log
 
 
 @bot.message_handler(commands=["start"])
 def start_message(message):
-    bot.send_message(message.chat.id, "Привет ✌️ ")
+    start_message = ""
+    start_message += f"Количество предупреждений для получения мута: {WARNS_TO_BAN}\n"
+    start_message += f"Количество одобрений для принятия апелляции: {APPROVES_TO_SATISFY_APPEAL}\n"
+    start_message += f"Режим разработчика: {DEVELOPER_MODE}"
+    if DEVELOPER_MODE:
+        start_message += "\n\n В режиме разработчика бот по прежнему показывает время банов для администраторов, хотя фактически не лишает их прав. Но заносит их в базу данных.\n"
+    bot.send_message(message.chat.id, start_message)
 
 
 def check_for_command(message):
@@ -104,20 +123,48 @@ def check_for_command(message):
     if not status:
         return
 
+    text_commandless = "".join(message.text.split(" ")[1:])
+
     if message.text.startswith("/ban"):
-        ban_time = mute_user(message.reply_to_message, message.from_user.id)
-        bot.reply_to(
-            message.reply_to_message, f"Забанен модератором {message.from_user.username} на {ban_time} дней"
-        )
+        ban_time, mute_user_log = mute_user(message.reply_to_message, message.from_user.id)
+        log = f"Мут на {ban_time} дней выдан модератором {message.from_user.username} ({message.from_user.id})"
+        log += f" пользователю {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id})\n"
+        log +=  mute_user_log
+        log += f"\nКомментарий модератора: {text_commandless}"
+        if mute_user_log == "" or DEVELOPER_MODE:
+            bot.reply_to(
+                message.reply_to_message, f"Мут наложен модератором {message.from_user.username} на {ban_time} дней"
+            )
+        else:
+            bot.reply_to(
+                message.reply_to_message, f"Попытка замутить предпринята модератором {message.from_user.username} на {ban_time} дней\n Попытка неудачна. Невозможно замутить администратора."
+            )
+        publish_log(log)
         return
     if message.text.startswith("/warn"):
-        warn_time = warn_user(message.reply_to_message, message.from_user.id)
+        print("warn command")
+        warn_time, warn_log = warn_user(message.reply_to_message, message.from_user.id)
+        print("warn command 1")
         if warn_time == 0:
-            ban_time = mute_user(message.reply_to_message, message.from_user.id)
-            bot.reply_to(
+            print("warn command 2")
+            ban_time, mute_user_log = mute_user(message.reply_to_message, message.from_user.id)
+            
+            log = f"Предупреждение {warn_time} выдано модератором {message.from_user.username} ({message.from_user.id})"
+            log += f" пользователю {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id})"
+            log +=  f" Достигнут лимит в {WARNS_TO_BAN}. Пользователь был забанен на {ban_time} дней"
+            log +=  warn_log + mute_user_log
+            log += f"\nКомментарий модератора: {text_commandless}"
+            publish_log(log)
+            if mute_user_log != "":
+                bot.reply_to(
                 message.reply_to_message, f"Предупреждение {WARNS_TO_BAN} выдано модератором {message.from_user.username}. Вы достигли лимита в {WARNS_TO_BAN}. Вы забанены модератором {message.from_user.username} на {ban_time} дней"
-            )
+                )
             return
+        print("warn command 3")
+        log = f"Предупреждение {warn_time} выдано модератором {message.from_user.username} ({message.from_user.id})"
+        log += f" пользователю {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id})"
+        log +=  warn_log
+        publish_log(log)
         bot.reply_to(
             message.reply_to_message, f"Предупреждение {warn_time} выдано модератором {message.from_user.username}"
         )
@@ -143,13 +190,21 @@ def check_for_command(message):
         )
         return
     if message.text.startswith("/unban"):
+        log = ""
         chat_id = special_chat
         user_id = message.reply_to_message.from_user.id
-        print(user_id)
+        
+        log += f"Снятие мута с пользователя {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) "
+        log += f"модератором {message.from_user.username} ({message.from_user.id}) "
         user_status = bot.get_chat_member(message.chat.id, user_id).status
         if user_status == "administrator" or user_status == "creator":
             bot.reply_to(message, "Невозможно лишить прав администратора. Так что и вернуть ему права невозможно.")
-            return
+            log += f"Ошибка: Невозможно лишить прав администратора. Так что и вернуть ему права невозможно. "
+            if not DEVELOPER_MODE:
+                publish_log(log)
+                return
+            else:
+                log += f"\n(Ошибка будет проигнорирована так как вызвана в режиме разработчика)"
         else:
             bot.restrict_chat_member(
                 chat_id,
@@ -165,28 +220,27 @@ def check_for_command(message):
         if user:
             last_ban_time = user.days
             if last_ban_time == 0:
-                 bot.reply_to(
-                    message,
-                    f"Пользователь {message.reply_to_message.from_user.username} уже был реабилитирован за все нарушения.",
-                )
+                log += "Снятие мута не завершено"
+                reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) уже был реабилитирован за все нарушения."
+                log += reason
+                bot.reply_to(message,reason)
             else:
                 if last_ban_time == 1:
                     storage.update_user(message.reply_to_message.from_user.id, days = 0)
-                    bot.reply_to(
-                        message,
-                        f"Пользователь {message.reply_to_message.from_user.username} реабилитирован по последнему нарушению",
-                    )
+                    reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) реабилитирован по последнему нарушению"
+                    log += reason
+                    bot.reply_to(message, reason)
                 else:
                     storage.update_user(message.reply_to_message.from_user.id, days = int(last_ban_time / 2))
-                    bot.reply_to(
-                        message,
-                        f"Пользователь {message.reply_to_message.from_user.username} реабилитирован .",
-                    )
+                    reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) реабилитирован"
+                    log += reason
+                    bot.reply_to(message, reason)
         else:
-             bot.reply_to(
-                    message,
-                    f"Пользователь {message.reply_to_message.from_user.username} не отмечен в базе как ранее привлекавщийся. Его нельзя реабилтировать, пока он не получит свой первый бан",
-                )
+            log += "Снятие мута не завершено"
+            reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) не отмечен в базе как ранее привлекавщийся. Его нельзя реабилтировать, пока он не получит свой первый мут",
+            log += reason
+            bot.reply_to(message,reason)
+        publish_log(log)
 
 
 def check_right_for_appeal(message, user):
@@ -221,6 +275,10 @@ def check_right_for_appeal(message, user):
         return False
 
     return True
+
+
+def publish_log(text:str):
+    bot.send_message(chat_id=my_setting.logger_chat, text=text) 
 
 
 def public_appeal(message):
