@@ -27,6 +27,14 @@ class AppealRecord:
         self.isClosed = isClosed
         self.appealDate = appealDate
 
+class WarnAppealRecord:
+    def __init__(self, id, warnId, messageId, isClosed, appealDate):
+        self.id = id,
+        self.warnId = warnId
+        self.messageId = messageId
+        self.isClosed = isClosed
+        self.appealDate = appealDate
+
 
 class PostgresStorage:
     def __init__(self, settings:settings):
@@ -77,6 +85,23 @@ class PostgresStorage:
             appealApproveDate TIMESTAMP NOT NULL,
             telegramUserId BIGINT NOT NULL,
             FOREIGN KEY (appealId) REFERENCES appeal_table(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS warn_appeal_table (
+            id SERIAL PRIMARY KEY,
+            warnId INTEGER NOT NULL,
+            messageId INTEGER NOT NULL UNIQUE,
+            isClosed BOOLEAN NOT NULL DEFAULT FALSE,
+            appealDate TIMESTAMP NOT NULL,
+            FOREIGN KEY (warnId) REFERENCES warn_table(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS warn_appeal_approve_table (
+            id SERIAL PRIMARY KEY,
+            appealId INTEGER NOT NULL,
+            appealApproveDate TIMESTAMP NOT NULL,
+            telegramUserId BIGINT NOT NULL,
+            FOREIGN KEY (appealId) REFERENCES warn_appeal_table(id) ON DELETE CASCADE
         );
 
 
@@ -212,6 +237,8 @@ class PostgresStorage:
     #         FOREIGN KEY (appealId) REFERENCES appeal_table(id) ON DELETE CASCADE
     #     );
 
+
+    #ban appeals
     def create_appeal(self, banId:int, messageId:int, appealDate:datetime= datetime.now()):
 
         insert_query = """
@@ -316,6 +343,125 @@ class PostgresStorage:
         # result[0] содержит количество записей с заданным appealId
         return result[0]
 
+    #  CREATE TABLE IF NOT EXISTS warn_appeal_table (
+    #         id SERIAL PRIMARY KEY,
+    #         warnId INTEGER NOT NULL,
+    #         messageId INTEGER NOT NULL UNIQUE,
+    #         isClosed BOOLEAN NOT NULL DEFAULT FALSE,
+    #         appealDate TIMESTAMP NOT NULL,
+    #         FOREIGN KEY (warnId) REFERENCES warn_table(id) ON DELETE CASCADE
+    #     );
+
+    #     CREATE TABLE IF NOT EXISTS warn_appeal_approve_table (
+    #         id SERIAL PRIMARY KEY,
+    #         appealId INTEGER NOT NULL,
+    #         appealApproveDate TIMESTAMP NOT NULL,
+    #         telegramUserId BIGINT NOT NULL,
+    #         FOREIGN KEY (appealId) REFERENCES warn_appeal_table(id) ON DELETE CASCADE
+    #     );
+
+    def create_warn_appeal(self, warnId:int, messageId:int, appealDate:datetime= datetime.now()):
+        insert_query = """
+        INSERT INTO warn_appeal_table (warnId, messageId, appealDate)
+        VALUES (%s, %s, %s);
+        """
+        self.cursor.execute(insert_query, (warnId, messageId, appealDate))
+        self.connection.commit()
+
+    def get_warn_appeal(self, messageId):
+        select_query = """
+        SELECT id, warnId, messageId, isClosed, appealDate
+        FROM warn_appeal_table 
+        WHERE messageId = %s;
+        """
+        self.cursor.execute(select_query, (messageId,))
+        result = self.cursor.fetchone()
+        
+        if result:
+            return WarnAppealRecord(*result)
+        else:
+            return None
+
+
+    def get_warn_appeals_by_telegram_user_id(self, telegramUserId):
+        select_query = """
+        SELECT a.id, a.banId, a.messageId, a.isClosed, a.appealDate
+        FROM warn_appeal_table a
+        JOIN warn_table b ON a.warnId = b.id
+        WHERE b.telegramUserId = %s;
+        """
+        self.cursor.execute(select_query, (telegramUserId,))
+        results = self.cursor.fetchall()
+
+        # Возвращаем список объектов WarnAppealRecord (или пустой список, если записей нет)
+        return [WarnAppealRecord(*row) for row in results]
+
+
+    def get_warn_appeal_by_warn_id(self, warnId):
+        select_query = """
+        SELECT id, warnId, messageId, isClosed, appealDate
+        FROM warn_appeal_table 
+        WHERE warnId = %s;
+        """
+        self.cursor.execute(select_query, (warnId,))
+        result = self.cursor.fetchone()
+        
+        if result:
+            return WarnAppealRecord(*result)
+        else:
+            return None
+    
+
+    def close_warn_appeal_by_id(self, appeal_id: int) -> bool:
+        update_query = """
+        UPDATE warn_appeal_table 
+        SET isClosed = TRUE 
+        WHERE id = %s 
+        RETURNING *;
+        """
+        
+        self.cursor.execute(update_query, (appeal_id,))
+        updated_appeal = self.cursor.fetchone()
+        
+        if updated_appeal:
+            return True
+        else:
+            return False
+
+
+    def create_warn_appeal_approve(self, appealId:int, telegramUserId:int, appealApproveDate:datetime= datetime.now()):
+        insert_query = """
+        INSERT INTO warn_appeal_approve_table (appealId, appealApproveDate, telegramUserId)
+        VALUES (%s, %s, %s);
+        """
+        self.cursor.execute(insert_query, (appealId, appealApproveDate, telegramUserId))
+        self.connection.commit()
+
+
+    def is_warn_appeal_approved_by_the_user(self, appealId: int, telegramUserId: int) -> bool:
+        check_query = """
+        SELECT EXISTS (
+            SELECT 1 
+            FROM warn_appeal_approve_table 
+            WHERE appealId = %s AND telegramUserId = %s
+        );
+        """
+        self.cursor.execute(check_query, (appealId, telegramUserId))
+        result = self.cursor.fetchone()
+        
+        return result[0]
+
+    def count_warn_appeals_by_id(self, appealId: int) -> int:
+        count_query = """
+        SELECT COUNT(*) 
+        FROM warn_appeal_approve_table 
+        WHERE appealId = %s;
+        """
+        self.cursor.execute(count_query, (appealId,))
+        result = self.cursor.fetchone()
+        
+        # result[0] содержит количество записей с заданным appealId
+        return result[0]
 
 
 if __name__ == "__main__":
