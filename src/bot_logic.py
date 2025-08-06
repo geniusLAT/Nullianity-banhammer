@@ -153,7 +153,7 @@ def check_for_command(message):
             log += f" пользователю {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id})"
             log +=  f" Достигнут лимит в {WARNS_TO_BAN}. Пользователь был забанен на {ban_time} дней"
             log +=  warn_log + mute_user_log
-            log += f"\nКомментарий модератора: {text_commandless}"
+            log += f"\nКомментарий модератора: {text_commandless}\n\n"
             publish_log(log)
             if mute_user_log != "":
                 bot.reply_to(
@@ -163,6 +163,7 @@ def check_for_command(message):
         print("warn command 3")
         log = f"Предупреждение {warn_time} выдано модератором {message.from_user.username} ({message.from_user.id})"
         log += f" пользователю {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id})"
+        log += f"\nКомментарий модератора: {text_commandless}\n\n"
         log +=  warn_log
         publish_log(log)
         bot.reply_to(
@@ -196,6 +197,7 @@ def check_for_command(message):
         
         log += f"Снятие мута с пользователя {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) "
         log += f"модератором {message.from_user.username} ({message.from_user.id}) "
+        log += f"\nКомментарий модератора: {text_commandless}"
         user_status = bot.get_chat_member(message.chat.id, user_id).status
         if user_status == "administrator" or user_status == "creator":
             bot.reply_to(message, "Невозможно лишить прав администратора. Так что и вернуть ему права невозможно.")
@@ -241,7 +243,48 @@ def check_for_command(message):
             log += reason
             bot.reply_to(message,reason)
         publish_log(log)
+    #
+    if message.text.startswith("/unwarn"):
+        log = ""
+        chat_id = special_chat
+        user_id = message.reply_to_message.from_user.id
+        
+        log += f"Снятие предупреждения с пользователя {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) "
+        log += f"модератором {message.from_user.username} ({message.from_user.id}) "
+        #user_status = bot.get_chat_member(message.chat.id, user_id).status
+        log += f"\nКомментарий модератора: {text_commandless}"
+        user = storage.get_warned_user(message.reply_to_message.from_user.id)
+        if user:
+            warn_counter = user.counter
 
+            now = datetime.now()
+            spent_time = now - user.warn_date
+            log += f"\nПредыдушее предупреждение было получено пользователем {user.warn_date}."
+            log += f"\nСейчас {now}"
+            log += f"\n прошло {spent_time},"
+            if  spent_time > timedelta(days=DAYS_BEFORE_WARN_EXPIRE):
+                log += f" это более {DAYS_BEFORE_WARN_EXPIRE} суток. Предыдушее предупреждение утратило силу."
+                warn_counter = 0
+            else: 
+                log += f" это не более {DAYS_BEFORE_WARN_EXPIRE} суток. Предыдушее предупреждение не утратило силу."
+
+            if warn_counter == 0:
+                log += "\nСнятие предупреждения не завершено\n"
+                reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) имеет 0 не истёкших предупреждений"
+                log += reason
+                bot.reply_to(message,reason)
+            else:
+                storage.update_warned_user(message.reply_to_message.from_user.id, user.admin_telegram_user_id, user.warn_date, counter = warn_counter - 1)
+                reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) реабилитирован по предупреждению {warn_counter}"
+                log += reason
+                bot.reply_to(message, reason)
+        else:
+            log += "\nСнятие предупреждения не завершено \n"
+            reason = f"Пользователь {message.reply_to_message.from_user.username} ({message.reply_to_message.from_user.id}) не отмечен в базе как ранее получавщий предупреждение. Нельзя пытаться снять предупреждение с того, кто их не получал."
+            log += reason
+            bot.reply_to(message,reason)
+        publish_log(log)
+    
 
 def check_right_for_appeal(message, user):
     if not user:
@@ -278,6 +321,7 @@ def check_right_for_appeal(message, user):
 
 
 def publish_log(text:str):
+    print(text)
     bot.send_message(chat_id=my_setting.logger_chat, text=text) 
 
 
