@@ -333,7 +333,7 @@ def public_appeal(message, banned_user):
     if r > 1 and r < 5 and (banned_user.days % 100) - r != 10 :
         day_word_form = "дня"
     interval_message = f"{banned_user.days} {day_word_form}"
-    log = f"\n[{message.from_user.username}](tg://user?id={message.from_user.id}) \\({message.from_user.id}\\) получил\\(a\\) свой последний мут на {interval_message}."
+    log = f"Апелляция на мут\n\n[{message.from_user.username}](tg://user?id={message.from_user.id}) \\({message.from_user.id}\\) получил\\(a\\) свой последний мут на {interval_message}."
     log += f"\nДата наложения последнего бана {banned_user.ban_date}"
     admin = bot.get_chat_member(my_setting.special_chat, banned_user.admin_telegram_user_id).user 
     log += f"\nАдминистратор наложивший бан: [{admin.username}](tg://user?id={banned_user.admin_telegram_user_id}) \\({banned_user.admin_telegram_user_id}\\)"
@@ -351,22 +351,30 @@ def public_appeal(message, banned_user):
     post_text = f"{log}\n\nТекст апелляции: {text_commandless}"
     post_text = post_text.replace('-','\\-').replace('.','\\.').replace('!','\\!')
     print(post_text)
+    publish_log(post_text)
     mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text, parse_mode="MarkdownV2") # 
     print(f"published appeal id {mes.id}")
-    return mes.id
+    return mes
 
 
 def register_appeal(message):
     user = storage.get_user(message.from_user.id)
     if not check_right_for_appeal(message, user):
         return
-    appeal_message_id = public_appeal(message, user)
+    appeal_message = public_appeal(message, user)
     print("creating appeal")
-    storage.create_appeal(user.id, appeal_message_id)
+    storage.create_appeal(user.id, appeal_message.id)
     print("created appeal")
+
+    post_channel_id =  -1 * appeal_message.chat.id -1000000000000
+    print(appeal_message.chat.id)
+    print(post_channel_id)
+    answer = f"[Апелляция](https://t.me/c/{post_channel_id}/{appeal_message.id}) зарегестрирована\\."
+    publish_log(answer)
     bot.reply_to(
                         message,
-                        f"Апелляция зарегестрирована.",
+                        answer,
+                        parse_mode="MarkdownV2"
                     )
                     
 def connect_appeal(message):
