@@ -118,6 +118,8 @@ def start_message(message):
 def check_for_command(message):
     global storage
     status = check_status(message)
+    if message.text.startswith("/tag_admins"):
+        tag_admins(message)
     if message.reply_to_message == None:
         return
     if not status:
@@ -325,6 +327,8 @@ def check_right_for_appeal(message, user):
 
     return True
 
+def replace_special_character(original:str) -> str:
+    return original.replace("_"," ").replace("-"," ")
 
 def public_appeal(message, banned_user):
     day_word_form = "дней"
@@ -334,10 +338,10 @@ def public_appeal(message, banned_user):
     if r > 1 and r < 5 and (banned_user.days % 100) - r != 10 :
         day_word_form = "дня"
     interval_message = f"{banned_user.days} {day_word_form}"
-    log = f"Апелляция на мут\n\n[{message.from_user.username}](tg://user?id={message.from_user.id}) \\({message.from_user.id}\\) получил\\(a\\) свой последний мут на {interval_message}."
+    log = f"Апелляция на мут\n\n[{replace_special_character(message.from_user.username)}](tg://user?id={message.from_user.id}) \\({message.from_user.id}\\) получил\\(a\\) свой последний мут на {interval_message}."
     log += f"\nДата наложения последнего бана {banned_user.ban_date}"
     admin = bot.get_chat_member(my_setting.special_chat, banned_user.admin_telegram_user_id).user 
-    log += f"\nАдминистратор наложивший бан: [{admin.username}](tg://user?id={banned_user.admin_telegram_user_id}) \\({banned_user.admin_telegram_user_id}\\)"
+    log += f"\nАдминистратор наложивший бан: [{replace_special_character(admin.username)}](tg://user?id={banned_user.admin_telegram_user_id}) \\({banned_user.admin_telegram_user_id}\\)"
 
 
     text_commandless = " ".join(message.text.split(" ")[1:], )
@@ -353,10 +357,14 @@ def public_appeal(message, banned_user):
     post_text = post_text.replace('-','\\-').replace('.','\\.').replace('!','\\!')
     print(post_text)
     publish_log(post_text)
-    mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text, parse_mode="MarkdownV2") # 
-    print(f"published appeal id {mes.id}")
-    return mes
-
+    try:
+        mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text, parse_mode="MarkdownV2") # 
+        print(f"published appeal id {mes.id}")
+        return mes
+    except:
+        mes = bot.send_message(chat_id=my_setting.appeal_channel, text=post_text)
+        print(f"published markdownless appeal id {mes.id}")
+        return mes
 
 def register_appeal(message):
     user = storage.get_user(message.from_user.id)
@@ -727,6 +735,34 @@ def show_statistics_for_user(message):
 
     bot.reply_to(message, log)
 
+def tag_admins(message):
+    admins = storage.get_all_active_admins()
+
+    message_text = ""
+
+    if len(admins)<1:
+        bot.reply_to(
+            message,
+             '''
+             Сейчас список активных админов пуст. Необходимо, чтобы админ попал в список командой /subscribe, отправленной в личные сообщения бота.
+             '''
+             )
+
+    for admin_id in admins:
+        admin_name = "Анонимный админ"
+        try:
+            admin = bot.get_chat_member(my_setting.special_chat, admin_id).user
+            admin_name = replace_special_character(admin.username) 
+        except Exception as E:
+            print(e)
+
+        message_text += f"[{admin_name}](tg://user?id={admin_id}) \n"
+
+    try:
+        bot.reply_to(message, message_text, parse_mode="MarkdownV2")
+    except Exception as ex:
+        bot.reply_to(message, message_text)
+        print(ex)
 
 def subscribe_active_admin(message):
     print('adding new active admin')
@@ -757,6 +793,7 @@ def show_help(message):
     /subscribe - добавляет вас в список активных админов, вам потребуется быть админом. В беседе появится возможность применять команду /tag_admins, чтобы призвать всех активных админов
     /unsubscribe - удаляет вас из списка активных админов, вам потребуется быть админом.
     /statistics - позволяет узнать ваш статус в системе, количество мутов, предупреждений, апелляций и прочие сведения.
+    /tag_admins - демонстрирует список активных админов. Если админ есть в беседе, где выполнена команда, он получит уведомление.
     /appeal_mute - позволяет подать апелляцию на наложенный на вас мут. Пожалуйста укажите как можно больше подробностей, в своём сообщении. 
     После публикации апелляции она будет размещена в канале для апелляций, где апелляционная комиссия сможет рассмотреть её согласно правилам.
     Если вы не согласны с несколькими мутами, полученными в последнее время, пожалуйста, уложите ваши пожелания в рамках одной апелляции и в тексте опишите
@@ -794,6 +831,9 @@ def process_private_chat_message(message):
     if message.text.startswith("/unsubscribe"):
         unsubscribe_active_admin(message)
         return
+    if message.text.startswith("/tag_admins"):
+        #it is here just to return and not typing placeholder. That command is can be caught in check_for_command, it can be done in public chat or in private chat either
+        return
     bot.reply_to(message, "Напишите /help чтобы узнать подробнее")
     
 
@@ -814,4 +854,5 @@ def message_reply(message):
         print(e)
 
 
-bot.infinity_polling()
+if __name__ == "__main__":
+    bot.infinity_polling()
